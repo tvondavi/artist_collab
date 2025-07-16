@@ -1,0 +1,11 @@
+pandas
+tqdm
+numpy
+langchain
+langchain-community
+jieba
+requests
+googletrans==4.0.0-rc1
+gensim
+spacy
+pyLDAvis
