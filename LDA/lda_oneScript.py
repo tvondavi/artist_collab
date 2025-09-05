@@ -88,7 +88,7 @@ for k in range(5, 21):
                    passes=10,
                    iterations=100)
     
-    cm = CoherenceModel(model=lda, corpus=corpus, dictionary=dictionary, coherence='u_mass')
+    cm = CoherenceModel(model=lda, corpus=corpus, dictionary=dictionary, coherence='c_v')
     score = cm.get_coherence()
     coherence_scores.append((k, score))
     print(f"Topics: {k} \t Coherence: {score:.4f}")
