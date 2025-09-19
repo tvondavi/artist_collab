@@ -64,7 +64,6 @@ lda_model = gensim.models.ldamodel.LdaModel(corpus=corpus,
                             num_topics=7,
                             random_state=42,
                             passes=10,
-                            chunksize=100,
                             alpha='auto',
                             per_word_topics=True)
 
@@ -86,7 +85,9 @@ for k in range(5, 21):
                    num_topics=k,
                    random_state=42,
                    passes=10,
-                   iterations=100)
+                   iterations=100,                            
+                   alpha='auto',
+                   per_word_topics=True)
     
     cm = CoherenceModel(model=lda, corpus=corpus, dictionary=dictionary, coherence='c_v')
     score = cm.get_coherence()
