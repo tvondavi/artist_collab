@@ -64,6 +64,7 @@ lda_model = gensim.models.ldamodel.LdaModel(corpus=corpus,
                             num_topics=7,
                             random_state=42,
                             passes=10,
+                            iterations=100, 
                             alpha='auto',
                             per_word_topics=True)
 
