@@ -1,61 +1,67 @@
-import concurrent.futures
 import pandas as pd
-from tqdm import tqdm  # Progress bar
 import os
-import re  # For removing "<think>" sections
+import re
+from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
 from langchain_community.chat_models import ChatOllama
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 
-# Load CSV data
-df = pd.read_csv("../LDA/newLDA_name.csv")
-column_to_translate = "raw_subject"
+# ==============================
+# CONFIG
+# ==============================
+INPUT_FILE = "../LDA_attempt/newLDA_name.csv"
+OUTPUT_FILE = "llama_translated_file.csv"
+COLUMN = "raw_subject"
+BATCH_SIZE = 50  # Larger batches for fewer writes
+NUM_WORKERS = max(1, cpu_count() - 1)  # Use all but one core
 
-# Set up LLM
-local_llm = "llama3.1:latest"
-llm = ChatOllama(model=local_llm, temperature=0)
-prompt_template = PromptTemplate(
-    input_variables=["text"],
-    template="Translate the following Chinese character text to English: {text}"
-)
-translation_chain = LLMChain(llm=llm, prompt=prompt_template, verbose=False)
+# ==============================
+# SETUP GLOBAL LLM (for each worker)
+# ==============================
+def init_llm():
+    local_llm = "llama3.1:latest"
+    llm = ChatOllama(model=local_llm, temperature=0)
+    prompt_template = PromptTemplate(
+        input_variables=["text"],
+        template="Translate the following Chinese text to English: {text}. Return only the translation."
+    )
+    chain = prompt_template | llm
+    return chain
 
-# # Function to remove "<think>" reasoning sections
-# def clean_translation(text):
-#     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+# ==============================
+# WORKER FUNCTION
+# ==============================
+def translate_text(text):
+    global chain
+    try:
+        result = chain.invoke({"text": text})
+        return result.content.strip()
+    except Exception as e:
+        return f"[Error: {e}]"
 
+def init_worker():
+    global chain
+    chain = init_llm()
 
-# Function to translate with a timeout
-def safe_translate(text, timeout=75):
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(translation_chain.predict, text=text)
-        try:
-            result = future.result(timeout=timeout)  # Enforce timeout
-            return result
-        except concurrent.futures.TimeoutError:
-            print("Translation Timeout")
-            return "[Translation Timeout]"
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    df = pd.read_csv(INPUT_FILE)
+    total = len(df)
+    file_exists = os.path.isfile(OUTPUT_FILE)
 
-# File to save translated results
-output_file = "llama_translated_file.csv"
-batch_size = 10  # Adjust based on system performance
+    with Pool(processes=NUM_WORKERS, initializer=init_worker) as pool:
+        for i in tqdm(range(0, total, BATCH_SIZE), desc="Translating", unit="batch"):
+            batch = df.iloc[i:i+BATCH_SIZE].copy()
+            texts = batch[COLUMN].tolist()
 
-# Check if output file already exists
-file_exists = os.path.isfile(output_file)
+            # Parallel translation
+            batch["translated_text"] = pool.map(translate_text, texts)
 
-# Open progress bar
-with tqdm(total=len(df), desc="Translating", unit="entry") as pbar:
-    for i in range(0, len(df), batch_size):
-        batch = df.iloc[i:i+batch_size].copy()  # Get batch
-        batch["translated_text"] = batch[column_to_translate].apply(safe_translate)
+            # Write periodically
+            batch.to_csv(OUTPUT_FILE, mode='a', index=False, header=not file_exists)
+            file_exists = True
 
-        # Append batch to CSV file
-        batch.to_csv(output_file, mode='a', index=False, header=not file_exists)
-        
-        # After first write, ensure future writes don't include headers
-        file_exists = True  
-        
-        # Update progress bar
-        pbar.update(len(batch))
-
-print("Translation completed and saved continuously!")
+    print("Translation completed!")
