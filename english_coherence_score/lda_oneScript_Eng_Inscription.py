@@ -126,4 +126,8 @@ lda_vis = gensimvis.prepare(
     sort_topics=False
 )
 
-lda_vis
+# Show inline
+pyLDAvis.display(lda_vis)
+
+# Also save to file
+pyLDAvis.save_html(lda_vis, "lda_inscription_visualization.html")
