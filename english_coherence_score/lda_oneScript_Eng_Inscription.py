@@ -131,3 +131,112 @@ pyLDAvis.display(lda_vis)
 
 # Also save to file
 pyLDAvis.save_html(lda_vis, "lda_inscription_visualization.html")
+
+
+###### Now we will create the csvs of information based on the topic distribution by the LDA ######
+best_lda_model = best_lda
+
+def export_topic_words(lda_model, num_words=30, output_path="topic_top_words.csv"):
+    """
+    Exports top words per topic with their probability scores.
+    
+    Args:
+        lda_model: your trained gensim LDA model
+        num_words: how many top words to extract per topic
+        output_path: where to save the CSV
+    """
+    rows = []
+    
+    for topic_id in range(lda_model.num_topics):
+        # get_topic_terms returns (word_id, probability) tuples
+        top_terms = lda_model.get_topic_terms(topic_id, topn=num_words)
+        
+        for rank, (word_id, prob) in enumerate(top_terms, start=1):
+            word = lda_model.id2word[word_id]
+            rows.append({
+                "topic": topic_id+1, #1-indexed for readability
+                "rank": rank,
+                "word": word,
+                "probability": round(prob, 6),
+                "log_probability": round(np.log(prob), 4)  # useful for comparing small values
+            })
+    
+    df = pd.DataFrame(rows)
+    df.to_csv(output_path, index=False)
+    print(f"Saved to {output_path}")
+    return df
+
+topic_df = export_topic_words(best_lda_model, num_words=30)
+topic_df.head(40)  # preview first two topics
+
+def relevance_score(prob_word_given_topic, prob_word_in_corpus, lambda_=0.6):
+    """
+    The relevance metric from Sievert & Shirley (2014) used by pyLDAvis.
+    lambda=0.6 is the empirically recommended default.
+    """
+    return lambda_ * np.log(prob_word_given_topic) + (1 - lambda_) * np.log(prob_word_given_topic / prob_word_in_corpus)
+
+# Get marginal word probabilities across the corpus
+word_counts = np.zeros(len(best_lda_model.id2word))
+for bow_doc in corpus:
+    for word_id, count in bow_doc:
+        word_counts[word_id] += count
+
+p_word = word_counts / word_counts.sum()  # marginal probability of each word
+
+# Rerun export with relevance added
+rows = []
+for topic_id in range(best_lda_model.num_topics):
+    top_terms = best_lda_model.get_topic_terms(topic_id, topn=20)
+    for rank, (word_id, prob) in enumerate(top_terms, start=1):
+        word = best_lda_model.id2word[word_id]
+        rel = relevance_score(prob, p_word[word_id])
+        rows.append({
+            "topic": topic_id,
+            "rank": rank,
+            "word": word,
+            "probability": round(prob, 6),
+            "log_probability": round(np.log(prob), 4),
+            "relevance_score": round(rel, 4)
+        })
+
+df = pd.DataFrame(rows)
+df.to_csv("Inscription_topic_words_w_relevance.csv", index=False)
+
+
+### To distribute Artwork Inscriptions by Topics #####
+# Number of topics
+num_topics = best_lda.num_topics  
+
+topic_distributions = []
+dominant_topics = []
+dominant_probs = []
+
+for doc_bow in corpus:
+    doc_topics = best_lda.get_document_topics(doc_bow, minimum_probability=0)
+
+    # Ensure all topics are included
+    topic_probs = [0] * num_topics
+    for topic_id, prob in doc_topics:
+        topic_probs[topic_id] = prob
+    
+    topic_distributions.append(topic_probs)
+
+    # Find dominant topic
+    max_topic_id = int(np.argmax(topic_probs))
+    max_prob = topic_probs[max_topic_id]
+
+    dominant_topics.append(max_topic_id + 1)   # shift to start at 1
+    dominant_probs.append(max_prob)
+
+# Convert to DataFrame
+topic_df = pd.DataFrame(topic_distributions, 
+                        columns=[f"Topic_{i+1}" for i in range(num_topics)])
+topic_df["Dominant_Topic"] = dominant_topics
+topic_df["Topic_Probability"] = dominant_probs
+
+# Concatenate with original df
+df_with_topics = pd.concat([df, topic_df], axis=1)
+
+# Save to CSV
+df_with_topics.to_csv("Incsription_LDA_with_topics.csv", index=False)
